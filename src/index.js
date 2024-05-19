@@ -1,10 +1,9 @@
-// @ts-ignore
-
 const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt'); // Import bcrypt for password hashing
 const { Kafka } = require("kafkajs");
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = 5000;
@@ -66,26 +65,42 @@ async function sendMessageToKafka(urlclienturl, clientmethod, clientduration, us
   }
 }
 
-const consumer = kafka.consumer({ groupId: 'peekaboo' });
+
 
 async function consumeMessagesFromKafka() {
+  const groupId = `peekaboo-${uuidv4()}`; 
+  const consumer = kafka.consumer({ groupId: groupId });
+  const consumedMessages = [];
+
   try {
     await consumer.connect();
     await consumer.subscribe({ topic: 'peekaboo', fromBeginning: true });
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        console.log({
-          key: message.key.toString(),
-          value: message.value.toString(),
-          headers: message.headers,
-        });
-      },
+
+    await new Promise((resolve, reject) => {
+      consumer.run({
+        eachMessage: async ({ topic, partition, message }) => {
+          const parsedMessage = JSON.parse(message.value.toString());
+          consumedMessages.push(parsedMessage);
+          console.log({
+            value: message.value.toString(),
+          });
+        },
+      }).catch(error => {
+        reject(error);
+      });
+
+      setTimeout(() => {resolve()}, 5000); // Wait for 5 seconds to consume messages
     });
+
   } catch (error) {
     console.error('Error occurred while consuming messages from Kafka:', error.message);
+    return { error: error.message };
+  } finally {
+    await consumer.disconnect();
   }
-}
 
+  return consumedMessages;
+}
 // API routes
 
 app.post('/api/fetch-user-ids', async (req, res) => {
@@ -97,15 +112,11 @@ app.post('/api/fetch-user-ids', async (req, res) => {
   res.json({ clienturl,clientmethod,clientduration,userIds,sdk_key});
 });
 
-app.get('/', async (req, res) => {
-  res.send('You reached the root path.');
-});
-
 // API endpoint to fetch data from Kafka consumer
 app.get('/api/fetch-kafka-data', async (req, res) => {
   try {
-    consumeMessagesFromKafka();
-    res.json({ message: 'Data fetched from Kafka consumer' });
+    const result = await consumeMessagesFromKafka();
+    res.json({ message: result });
   } catch (error) {
     console.error('Error occurred while fetching data from Kafka consumer:', error.message);
     res.status(500).json({ error: 'Internal server error' });
