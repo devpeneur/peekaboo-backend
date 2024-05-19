@@ -97,6 +97,10 @@ app.post('/api/fetch-user-ids', async (req, res) => {
   res.json({ clienturl,clientmethod,clientduration,userIds,sdk_key});
 });
 
+app.get('/', async (req, res) => {
+  res.send('You reached the root path.');
+});
+
 // API endpoint to fetch data from Kafka consumer
 app.get('/api/fetch-kafka-data', async (req, res) => {
   try {
